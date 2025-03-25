@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
+from collections import deque
 import asyncio
 import json
 from src.storage import CassandraStorage
@@ -12,6 +13,25 @@ app = FastAPI(
 )
 
 storage = CassandraStorage()
+
+async def event_stream():
+    event_buffer = deque()
+    last_timestamp = None  
+
+    while True:
+        if not event_buffer:
+            new_events = storage.get_latest_events(last_timestamp=last_timestamp, limit=10)
+            if new_events:
+                event_buffer.extend(new_events)
+                last_timestamp = new_events[-1]["timestamp"]
+        
+        if event_buffer:
+            event = event_buffer.popleft()
+            yield f"data: {json.dumps(event)}\n\n"
+        else:
+            yield "data: {}\n\n"  
+        
+        await asyncio.sleep(1) 
 
 
 @app.get(
@@ -27,7 +47,8 @@ storage = CassandraStorage()
     }
 )
 async def stream_events():
-    return
+    """Stream time-series events from Cassandra."""
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @app.get(
@@ -37,6 +58,14 @@ async def stream_events():
     response_model=list[dict]
 )
 async def get_event_history(limit: int = 10):
-    return
+    if limit <= 0:
+        raise HTTPException(status_code=400, detail="Limit must be positive")
+    
+    events = storage.get_events(limit=limit)
+    if not events:
+        return [] 
+    
+    return events
+
 
 
