@@ -12,27 +12,32 @@ app = FastAPI(
     version="1.0.0"
 )
 
-storage = CassandraStorage()
+try:
+    storage = CassandraStorage()
+except Exception as e:
+    raise RuntimeError(f"Failed to initialize Cassandra storage: {str(e)}")
 
 async def event_stream():
     event_buffer = deque()
     last_timestamp = None  
 
     while True:
-        if not event_buffer:
-            new_events = storage.get_latest_events(last_timestamp=last_timestamp, limit=10)
-            if new_events:
-                event_buffer.extend(new_events)
-                last_timestamp = new_events[-1]["timestamp"]
+        try:
+            if not event_buffer:
+                new_events = storage.get_latest_events(last_timestamp=last_timestamp, limit=10)
+                if new_events:
+                    event_buffer.extend(new_events)
+                    last_timestamp = new_events[-1]["timestamp"]
+            
+            if event_buffer:
+                event = event_buffer.popleft()
+                yield f"data: {json.dumps(event)}\n\n"
+            else:
+                yield "data: {}\n\n"
+        except Exception as e:
+            yield f"data: {{'error': 'Stream error: {str(e)}'}}\n\n"
         
-        if event_buffer:
-            event = event_buffer.popleft()
-            yield f"data: {json.dumps(event)}\n\n"
-        else:
-            yield "data: {}\n\n"  
-        
-        await asyncio.sleep(1) 
-
+        await asyncio.sleep(1)
 
 @app.get(
     "/stream",
