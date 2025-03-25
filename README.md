@@ -1,5 +1,3 @@
-# mindsDB_assesment
-
 # Time-Series Event Microservice
 
 This is a backend microservice built with Python and FastAPI that emits time-series events at regular intervals and provides a history of past events. 
