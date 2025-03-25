@@ -1,6 +1,7 @@
 from cassandra.cluster import Cluster
 from cassandra.query import SimpleStatement
 from cassandra import NoHostAvailable, OperationTimedOut, InvalidRequest
+from cassandra.io.asyncioreactor import AsyncioConnection  # Use this instead
 from fastapi import HTTPException
 
 class CassandraStorage:
@@ -12,15 +13,13 @@ class CassandraStorage:
 
     def initialize(self):
         try:
-            self.cluster = Cluster(['localhost'])  
+            self.cluster = Cluster(['localhost'], connection_class=AsyncioConnection)
             self.session = self.cluster.connect()
-
             self.session.execute("""
                 CREATE KEYSPACE IF NOT EXISTS timeseries
                 WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}
             """)
             self.session.set_keyspace(self.keyspace)
-
             self.session.execute("""
                 CREATE TABLE IF NOT EXISTS events (
                     timestamp timestamp,
@@ -29,14 +28,11 @@ class CassandraStorage:
                     PRIMARY KEY (metric, timestamp)
                 ) WITH CLUSTERING ORDER BY (timestamp DESC)
             """)
-
         except NoHostAvailable as e:
             raise HTTPException(status_code=503, detail="Cassandra cluster is unavailable")
-        except InvalidRequest as e:
-            raise HTTPException(status_code=500, detail=f"Failed to initialize Cassandra: {str(e)}")
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
-
+        
     def _check_session(self):
         if not self.session or self.session.is_shutdown:
             raise HTTPException(status_code=500, detail="Cassandra session not initialized")
@@ -109,7 +105,6 @@ class CassandraStorage:
             raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
     def shutdown(self):
-        """Gracefully shut down the Cassandra connection."""
         try:
             if self.cluster and not self.cluster.is_shutdown:
                 self.cluster.shutdown()
